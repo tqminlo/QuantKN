@@ -1,0 +1,146 @@
+import os
+import json
+import numpy as np
+from keras.layers import ReLU
+import cv2
+
+
+class InferIntBase:
+    """
+    Infer integer-only from json-file and model graph.
+    """
+    def __init__(self, model, json_path, size=320):
+        self.model = model
+        self.size = size
+        with open(json_path) as f:
+            self.model_quant = json.load(f)
+
+    def conv_infer_quant(self, layer, data_quant, x):
+        kernel = data_quant["kernel"]
+        # print("kernel:", np.min(kernel), np.max(kernel))
+        bias = data_quant["bias_org"]
+        Z_k = data_quant["flt_off"]
+        Z_i = data_quant["inp_off"]
+        Z_o = data_quant["out_off"]
+        M0 = data_quant["multiplier"]
+        n = data_quant["shift"]
+        x = x - Z_i
+        if len(layer.get_weights()) == 2:
+            layer.set_weights([kernel - Z_k, bias])
+        else:
+            layer.set_weights([kernel - Z_k])
+        x = layer(x).numpy()
+        x = np.floor(x * M0 / 2147483648 + 0.5).astype(int)   ### -34,6 --> -35, -34,5 --> -34
+        x = (x / pow(2, -n) + np.sign(x) * 0.5).astype(int)   ### -34,6 --> -35, -34,5 --> -35
+        x = x + Z_o
+        return x
+
+    def add_infer_quant(self, data_quant, inp1, inp2):
+        '''
+        for and 2 input, need modify after
+        '''
+        Z_i1 = data_quant["inp1_off"]
+        Z_i2 = data_quant["inp2_off"]
+        Z_o = data_quant["out_off"]
+        M10 = data_quant["inp1_multiplier"]
+        n1 = data_quant["inp1_shift"]
+        M20 = data_quant["inp2_multiplier"]
+        n2 = data_quant["inp2_shift"]
+        Mo0 = data_quant["output_multiplier"]
+        no = data_quant["output_shift"]
+        nleft = data_quant["left_shift"]  # = 20
+        inp1 = inp1 - Z_i1
+        inp1 = np.floor(inp1 * M10 / pow(2, 31-nleft) + 0.5).astype(int)   ### -34,6 --> -35, -34,5 --> -34
+        inp1 = (inp1 / pow(2, -n1) + np.sign(inp1) * 0.5).astype(int)      ### -34,6 --> -35, -34,5 --> -35
+        inp2 = inp2 - Z_i2
+        inp2 = np.floor(inp2 * M20 / pow(2, 31-nleft) + 0.5).astype(int)   ### -34,6 --> -35, -34,5 --> -34
+        inp2 = (inp2 / pow(2, -n2) + np.sign(inp2) * 0.5).astype(int)      ### -34,6 --> -35, -34,5 --> -35
+        x = inp1 + inp2
+        x = np.floor(x * Mo0 / 2147483648 + 0.5).astype(int)               ### -34,6 --> -35, -34,5 --> -34
+        x = (x / pow(2, -no) + np.sign(x) * 0.5).astype(int)               ### -34,6 --> -35, -34,5 --> -35
+        x = x + Z_o
+
+        return x
+
+    def concat_infer_quant(self, layer, data_quant, inps):
+        inps_new = []
+        for i in range(len(inps)):
+            x = inps[i]
+            Z_i = data_quant[f"inp{i+1}_off"]
+            Z_o = data_quant["out_off"]
+            M0 = data_quant[f"multiplier_{i+1}"]
+            n = data_quant[f"shift_{i+1}"]
+            x = x - Z_i
+            x = np.floor(x * M0 / 2147483648 + 0.5).astype(int)            ### -34,6 --> -35, -34,5 --> -34
+            x = (x / pow(2, -n) + np.sign(x) * 0.5).astype(int)            ### -34,6 --> -35, -34,5 --> -35
+            x = x + Z_o
+            inps_new.append(x)
+        x = layer(inps_new).numpy()
+        return x
+
+    def infer(self, inp):
+        if isinstance(inp, str):
+            inp = cv2.resize(cv2.imread(inp), (self.size, self.size))
+        else:
+            inp = cv2.resize(inp, (self.size, self.size))
+        inp = np.expand_dims(inp, axis=0)
+
+        all_output = {}
+        all_output[self.model.layers[0].name] = inp
+
+        for i in range(1, len(self.model.layers)):
+            layer = self.model.layers[i]
+            name = layer.name
+            print(name)
+
+            if any(check in name for check in ["conv", "cv", "pw", "dw"]):
+                input_name = layer.input.name.split("/")[0]
+                print("--", input_name)
+                inp = all_output[input_name].astype(float)
+                data_quant = self.model_quant[name]
+                output = self.conv_infer_quant(layer, data_quant, inp)
+                print(np.min(output), np.max(output))
+
+            elif "add" in name and "padding" not in name:
+                inputs = layer.input
+                input_name1 = inputs[0].name.split("/")[0]
+                input_name2 = inputs[1].name.split("/")[0]
+                print("--", input_name1)
+                print("--", input_name2)
+                input1 = all_output[input_name1].astype(float)
+                input2 = all_output[input_name2].astype(float)
+                data_quant = self.model_quant[name]
+                output = self.add_infer_quant(data_quant, input1, input2)
+                print(np.min(output), np.max(output))
+
+            elif "concat" in name:
+                inputs = layer.input
+                re_inputs = []
+                for i in range(len(inputs)):
+                    input_name = inputs[i].name.split("/")[0]
+                    print("--", input_name)
+                    inp = all_output[input_name].astype(float)
+                    re_inputs.append(inp)
+                if name == "concatenate_4":
+                    output = layer(re_inputs).numpy()
+                else:
+                    data_quant = self.model_quant[name]
+                    output = self.concat_infer_quant(layer, data_quant, re_inputs)
+                print(np.min(output), np.max(output))
+
+            else:
+                input_name = layer.input.name.split("/")[0]
+                print("--", input_name)
+                inp = all_output[input_name].astype(float)
+                output = layer(inp).numpy()
+                output = (output + np.sign(output) * 0.5).astype(int)    # Average layer can cause numbers to not int
+                print(np.min(output), np.max(output))
+
+            # for key in all_output.keys():  # Xoa het key khac de giam bo nho cho ram
+            #     all_output[key] = None
+            output = ReLU(255)(output).numpy().astype(int)
+            all_output[name] = output
+            print(output.shape)
+            print("***********")
+
+        return all_output
