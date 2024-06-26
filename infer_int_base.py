@@ -79,11 +79,13 @@ class InferIntBase:
         return x
 
     def infer(self, inp):
+        """inp can be an image-path or a raw 3d-tensor or a 4d-tensor resized"""
         if isinstance(inp, str):
             inp = cv2.resize(cv2.imread(inp), (self.size, self.size))
-        else:
+            inp = np.expand_dims(inp, axis=0)
+        elif len(inp.shape) != 4:
             inp = cv2.resize(inp, (self.size, self.size))
-        inp = np.expand_dims(inp, axis=0)
+            inp = np.expand_dims(inp, axis=0)
 
         all_output = {}
         all_output[self.model.layers[0].name] = inp

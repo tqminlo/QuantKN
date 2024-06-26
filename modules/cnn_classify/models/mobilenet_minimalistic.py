@@ -90,3 +90,5 @@ class MobileNet:
 if __name__ == "__main__":
     model = MobileNet(224)()
     model.summary()
+    model2 = model
+    model2.summary()

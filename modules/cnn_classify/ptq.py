@@ -7,7 +7,7 @@ from keras.models import Model
 import sys
 import argparse
 sys.path.append("../../")
-from ptq_base import BasePTQ, fused_bn_to_cv
+from ptq_base import BasePTQ
 
 from train import SIZE, DATA_DIR, classify_zoo
 
@@ -48,7 +48,8 @@ if __name__ == "__main__":
     ap.add_argument('-j', '--save_json', help='save_json', default="saved/mobilenet-1st.json")
     args = ap.parse_args()
 
-    model = classify_zoo[args.architecture]
+    model = classify_zoo[args.architecture]["fuse"]
+
     model.load_weights(args.weights)
     model = remove_softmax_layer(model)
     data_calib = get_data_calib()

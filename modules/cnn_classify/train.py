@@ -1,11 +1,8 @@
 import os
 import keras
 import numpy as np
-from sklearn.utils import shuffle
 from models.mobilenet_minimalistic import MobileNet
 from tensorflow.keras.optimizers import Adam
-from tqdm import tqdm
-from keras.utils import to_categorical
 from keras.preprocessing.image import ImageDataGenerator
 import sys
 sys.path.append("../../")
@@ -16,7 +13,9 @@ SIZE = 224
 DATA_DIR = "../../datasets/imagenet100"
 train_dir = f"{DATA_DIR}/train"
 val_dir = f"{DATA_DIR}/val"
-classify_zoo = {"mobilenet": MobileNet(SIZE)()}
+classify_zoo = {"mobilenet": {"train": MobileNet(SIZE)(),
+                              "fuse": MobileNet(SIZE)()}
+                }
 
 
 class TrainFP:
@@ -57,7 +56,7 @@ if __name__ == "__main__":
     ap.add_argument('-s', '--save_path', help='save_path', default="saved/mobilenet-w-1st.h5")
     args = ap.parse_args()
 
-    architecture = classify_zoo[args.architecture]
+    architecture = classify_zoo[args.architecture]["train"]
     train_fp = TrainFP(model=architecture, batch_size=args.batch_size, pretrained=args.pretrained)
     train_fp.train(epochs=args.epochs, save_path=args.save_path)
     train_fp.eval(weight_path=args.save_path)
