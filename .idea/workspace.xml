@@ -5,15 +5,8 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="2254b592-1136-4704-801b-f0628fd3d8b5" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infer_int_base.py" beforeDir="false" afterPath="$PROJECT_DIR$/infer_int_base.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/cnn_classify/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/modules/cnn_classify/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/cnn_classify/benchmark_int.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/cnn_classify/infer_int.py" beforeDir="false" afterPath="$PROJECT_DIR$/modules/cnn_classify/infer_int.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/cnn_classify/models/mobilenet_minimalistic.py" beforeDir="false" afterPath="$PROJECT_DIR$/modules/cnn_classify/models/mobilenet_minimalistic.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/cnn_classify/ptq.py" beforeDir="false" afterPath="$PROJECT_DIR$/modules/cnn_classify/ptq.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/cnn_classify/train.py" beforeDir="false" afterPath="$PROJECT_DIR$/modules/cnn_classify/train.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
