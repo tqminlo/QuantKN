@@ -66,11 +66,9 @@ class BasePTQ:
     Activate valid: ReLU
     Input is read with format BGR and norm by 1/255 in float model.
     """
-    def __init__(self, model, dataset_dir="datasets/imagenet100/val/images", size=320):
+    def __init__(self, model, data_quantize):
         self.model = model
-        self.dataset_dir = dataset_dir
-        self.size = size
-        self.data_quantize = self.get_data_quantize(num_use=400)
+        self.data_quantize = data_quantize
         self.output_dict = {}
         self.scale_dict = {}
         self.model.summary()
@@ -104,23 +102,6 @@ class BasePTQ:
         M0, n = np.frexp(M)
         M0 = round(M0 * 2147483648)
         return M0, n
-
-    def get_data_quantize(self, num_use=200):
-        """Get random minidata for calib all ranges"""
-        data_quantize = []
-        img_dir = self.dataset_dir
-        all_img = os.listdir(img_dir)
-        all_img = shuffle(all_img)
-        for img_name in all_img[:num_use]:
-            img_path = os.path.join(img_dir, img_name)
-            img = cv2.imread(img_path)
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            img = cv2.resize(img, (self.size, self.size))
-            img = img / 255.
-            data_quantize.append(img)
-
-        data_quantize = np.array(data_quantize)
-        return data_quantize
 
     def get_all_tensor_quantize(self):
         for i in range(len(self.model.layers)):
@@ -160,6 +141,7 @@ class BasePTQ:
             if "input" in name:
                 output = self.data_quantize
                 Z, S = 0, 1/255.
+                # Z, S, _ = self.quant_uint8(output)   ### 0, 1/255.
                 self.scale_dict[name] = [Z, S]
 
             elif any(check in name for check in ["conv", "cv", "pw", "dw"]):
