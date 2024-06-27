@@ -15,7 +15,13 @@ class InferIntBase:
         with open(json_path) as f:
             self.model_quant = json.load(f)
 
-    def conv_infer_quant(self, layer, data_quant, x):
+    def conv_infer_quant(self, layer, name, all_output):
+        data_quant = self.model_quant[name]
+
+        input_name = layer.input.name.split("/")[0]
+        print("--", input_name)
+        inp = all_output[input_name].astype(float)
+
         kernel = data_quant["kernel"]
         # print("kernel:", np.min(kernel), np.max(kernel))
         bias = data_quant["bias_org"]
@@ -24,7 +30,7 @@ class InferIntBase:
         Z_o = data_quant["out_off"]
         M0 = data_quant["multiplier"]
         n = data_quant["shift"]
-        x = x - Z_i
+        x = inp - Z_i
         if len(layer.get_weights()) == 2:
             layer.set_weights([kernel - Z_k, bias])
         else:
@@ -35,10 +41,20 @@ class InferIntBase:
         x = x + Z_o
         return x
 
-    def add_infer_quant(self, data_quant, inp1, inp2):
+    def add_infer_quant(self, layer, name, all_output):
         '''
-        for and 2 input, need modify after
+        for more than 2 input, need modify after
         '''
+        data_quant = self.model_quant[name]
+
+        inputs = layer.input
+        input_name1 = inputs[0].name.split("/")[0]
+        input_name2 = inputs[1].name.split("/")[0]
+        print("--", input_name1)
+        print("--", input_name2)
+        input1 = all_output[input_name1].astype(float)
+        input2 = all_output[input_name2].astype(float)
+
         Z_i1 = data_quant["inp1_off"]
         Z_i2 = data_quant["inp2_off"]
         Z_o = data_quant["out_off"]
@@ -49,10 +65,10 @@ class InferIntBase:
         Mo0 = data_quant["output_multiplier"]
         no = data_quant["output_shift"]
         nleft = data_quant["left_shift"]  # = 20
-        inp1 = inp1 - Z_i1
+        inp1 = input1 - Z_i1
         inp1 = np.floor(inp1 * M10 / pow(2, 31-nleft) + 0.5).astype(int)   ### -34,6 --> -35, -34,5 --> -34
         inp1 = (inp1 / pow(2, -n1) + np.sign(inp1) * 0.5).astype(int)      ### -34,6 --> -35, -34,5 --> -35
-        inp2 = inp2 - Z_i2
+        inp2 = input2 - Z_i2
         inp2 = np.floor(inp2 * M20 / pow(2, 31-nleft) + 0.5).astype(int)   ### -34,6 --> -35, -34,5 --> -34
         inp2 = (inp2 / pow(2, -n2) + np.sign(inp2) * 0.5).astype(int)      ### -34,6 --> -35, -34,5 --> -35
         x = inp1 + inp2
@@ -62,10 +78,20 @@ class InferIntBase:
 
         return x
 
-    def concat_infer_quant(self, layer, data_quant, inps):
+    def concat_infer_quant(self, layer, name, all_output):
+        data_quant = self.model_quant[name]
+
+        inputs = layer.input
+        inputs_array = []
+        for i in range(len(inputs)):
+            input_name = inputs[i].name.split("/")[0]
+            print("--", input_name)
+            inp = all_output[input_name].astype(float)
+            inputs_array.append(inp)
+
         inps_new = []
-        for i in range(len(inps)):
-            x = inps[i]
+        for i in range(len(inputs_array)):
+            x = inputs_array[i]
             Z_i = data_quant[f"inp{i+1}_off"]
             Z_o = data_quant["out_off"]
             M0 = data_quant[f"multiplier_{i+1}"]
@@ -76,6 +102,7 @@ class InferIntBase:
             x = x + Z_o
             inps_new.append(x)
         x = layer(inps_new).numpy()
+
         return x
 
     def infer(self, inp):
@@ -88,46 +115,26 @@ class InferIntBase:
             inp = np.expand_dims(inp, axis=0)
 
         all_output = {}
-        all_output[self.model.layers[0].name] = inp
-
-        for i in range(1, len(self.model.layers)):
+        for i in range(len(self.model.layers)):
             layer = self.model.layers[i]
             name = layer.name
             print(name)
 
-            if any(check in name for check in ["conv", "cv", "pw", "dw"]):
-                input_name = layer.input.name.split("/")[0]
-                print("--", input_name)
-                inp = all_output[input_name].astype(float)
-                data_quant = self.model_quant[name]
-                output = self.conv_infer_quant(layer, data_quant, inp)
+            if "input" in name:
+                output = inp
+                all_output[name] = output
+                print(np.min(output), np.max(output))
+
+            elif any(check in name for check in ["conv", "cv", "pw", "dw"]):
+                output = self.conv_infer_quant(layer, name, all_output)
                 print(np.min(output), np.max(output))
 
             elif "add" in name and "padding" not in name:
-                inputs = layer.input
-                input_name1 = inputs[0].name.split("/")[0]
-                input_name2 = inputs[1].name.split("/")[0]
-                print("--", input_name1)
-                print("--", input_name2)
-                input1 = all_output[input_name1].astype(float)
-                input2 = all_output[input_name2].astype(float)
-                data_quant = self.model_quant[name]
-                output = self.add_infer_quant(data_quant, input1, input2)
+                output = self.add_infer_quant(layer, name, all_output)
                 print(np.min(output), np.max(output))
 
             elif "concat" in name:
-                inputs = layer.input
-                re_inputs = []
-                for i in range(len(inputs)):
-                    input_name = inputs[i].name.split("/")[0]
-                    print("--", input_name)
-                    inp = all_output[input_name].astype(float)
-                    re_inputs.append(inp)
-                if name == "concatenate_4":
-                    output = layer(re_inputs).numpy()
-                else:
-                    data_quant = self.model_quant[name]
-                    output = self.concat_infer_quant(layer, data_quant, re_inputs)
+                output = self.concat_infer_quant(layer, name, all_output)
                 print(np.min(output), np.max(output))
 
             else:
