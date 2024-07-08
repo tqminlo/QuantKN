@@ -14,6 +14,9 @@ from ptq import remove_softmax_layer
 
 
 class InferInt(InferIntBase):
+    def __init__(self, model, json_path, size):
+        super().__init__(model, json_path, size)
+
     def infer_img(self, img_path):
         all_output = self.infer(img_path)
         last_layer = [self.model.output.name.split("/")[0]]
