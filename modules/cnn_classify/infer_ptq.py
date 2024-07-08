@@ -5,7 +5,7 @@ import keras
 import sys
 import numpy as np
 sys.path.append("../../")
-from infer_int_base import InferIntBase
+from infer_ptq_base import InferPTQBase
 from models.mobilenet_minimalistic import MobileNet
 from keras.models import Model
 import argparse
@@ -13,7 +13,7 @@ from train import classify_zoo, SIZE, val_dir
 from ptq import remove_softmax_layer
 
 
-class InferInt(InferIntBase):
+class InferPTQ(InferPTQBase):
     def __init__(self, model, json_path, size):
         super().__init__(model, json_path, size)
 
@@ -79,7 +79,7 @@ if __name__ == "__main__":
     model = classify_zoo[args.architecture]["fuse"]
     model = remove_softmax_layer(model)
 
-    infer = InferInt(model, args.json_path, size=SIZE)
+    infer = InferPTQ(model, args.json_path, size=SIZE)
     if args.type == "infer":
         infer.infer_img(args.inp_path)
     else:

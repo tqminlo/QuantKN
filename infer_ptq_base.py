@@ -5,7 +5,7 @@ from keras.layers import ReLU
 import cv2
 
 
-class InferIntBase:
+class InferPTQBase:
     """
     Infer integer-only from json-file and model graph.
     """

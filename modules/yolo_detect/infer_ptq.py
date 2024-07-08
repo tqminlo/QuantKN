@@ -4,7 +4,7 @@ import cv2
 import sys
 import numpy as np
 sys.path.append("../../")
-from infer_int_base import InferIntBase
+from infer_ptq_base import InferPTQBase
 from models.yolov83 import YOLOv8Light
 from keras.models import Model
 import argparse
@@ -14,7 +14,7 @@ def sigmoid(x):
     return 1/(1+np.exp(-x))
 
 
-class InferPTQ(InferIntBase):
+class InferPTQ(InferPTQBase):
     def detect(self, inp, conf_soft=0.3, iou_thresh=0.4, save=True):
         if isinstance(inp, str):        ### img is image-path
             img_org = cv2.imread(inp)
