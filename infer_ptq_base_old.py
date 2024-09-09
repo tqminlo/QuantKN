@@ -30,22 +30,23 @@ class InferPTQBase:
         Z_o = data_quant["out_off"]
         M0 = data_quant["multiplier"]
         n = data_quant["shift"]
-        x = inp - Z_i
-        if len(layer.get_weights()) == 2:
-            layer.set_weights([kernel - Z_k, bias])
-        else:
-            layer.set_weights([kernel - Z_k])
-        x = layer(x).numpy()
-        # except:                     # for case that bias not same each out-channel (bias not shape (out-channel,))
-        #     print("--- check Z_i shape: ", Z_i.shape)
-        #     print("--- check bias shape: ", bias.shape)
-        #     print("--- check M0 shape: ", M0.shape)
-        #     Z_i = Z_i[:, 1:, :].reshape((1,37,37,1))
-        #     bias = bias[1:, :].reshape((37,37,bias.shape[-1]))
-        #     M0 = M0[1:, :].reshape((37,37,1))
-        #     n = n[1:, :].reshape((37, 37, 1))
-        #     layer.set_weights([kernel - Z_k, np.zeros(shape=(bias.shape[-1],))])
-        #     x = layer(inp - Z_i).numpy() + bias
+        try:
+            x = inp - Z_i
+            if len(layer.get_weights()) == 2:
+                layer.set_weights([kernel - Z_k, bias])
+            else:
+                layer.set_weights([kernel - Z_k])
+            x = layer(x).numpy()
+        except:
+            print("--- check Z_i shape: ", Z_i.shape)
+            print("--- check bias shape: ", bias.shape)
+            print("--- check M0 shape: ", M0.shape)
+            Z_i = Z_i[:, 1:, :].reshape((1,37,37,1))
+            bias = bias[1:, :].reshape((37,37,bias.shape[-1]))
+            M0 = M0[1:, :].reshape((37,37,1))
+            n = n[1:, :].reshape((37, 37, 1))
+            layer.set_weights([kernel - Z_k, np.zeros(shape=(bias.shape[-1],))])
+            x = layer(inp - Z_i).numpy() + bias
         x = np.floor(x * M0 / 2147483648 + 0.5).astype(int)   ### -34,6 --> -35, -34,5 --> -34
         x = (x / pow(2, -n) + np.sign(x) * 0.5).astype(int)   ### -34,6 --> -35, -34,5 --> -35
         x = x + Z_o
@@ -138,11 +139,13 @@ class InferPTQBase:
         M0 = data_quant["multiplier"]
         n = data_quant["shift"]
         # x = inp - Z_i
-        # if len(layer.get_weights()) == 2:
-        #     layer.set_weights([kernel - Z_k, bias])
-        # else:
-        #     layer.set_weights([kernel - Z_k])
-        # x = layer(x).numpy()
+        # try:
+        #     if len(layer.get_weights()) == 2:
+        #         layer.set_weights([kernel - Z_k, bias])
+        #     else:
+        #         layer.set_weights([kernel - Z_k])
+        #     x = layer(x).numpy()
+        # except:
         x = (inp - Z_i) @ (kernel - Z_k) + bias
         x = np.floor(x * M0 / 2147483648 + 0.5).astype(int)  ### -34,6 --> -35, -34,5 --> -34
         x = (x / pow(2, -n) + np.sign(x) * 0.5).astype(int)  ### -34,6 --> -35, -34,5 --> -35

@@ -66,16 +66,13 @@ class BasePTQ:
     Activate valid: ReLU
     Input is read with format BGR and norm by 1/255 in float model.
     """
-    def __init__(self, model, data_quantize, batch_size):
+    def __init__(self, model, data_quantize):
         self.model = model
         self.data_quantize = data_quantize
         self.output_dict = {}
-        self.range_dict = {}
         self.scale_dict = {}
         self.model.summary()
-        self.get_all_range_quantize(batch_size)
-        print("*** all range : ", self.range_dict)
-        print("--------------")
+        self.get_all_tensor_quantize()
 
     def quant_uint8(self, tensor, activation=None):
         """
@@ -110,64 +107,50 @@ class BasePTQ:
         n = int(n)
         return M0, n
 
-    def get_all_range_quantize(self, batch_size):
-        """Continue..."""
-        print("*** Init all-range dictionary : ")
+    def get_all_tensor_quantize(self):
         for i in range(len(self.model.layers)):
             name = self.model.layers[i].name
-            self.range_dict[name] = np.array([10e6, -10e6])
+            print(name)
 
-        print("*** Infer batches and update all-range : ")
-        len_data = len(self.data_quantize[0]) if isinstance(type(self.data_quantize), list) else len(self.data_quantize)
-        if not batch_size:
-            batch_size = len_data
-        num_steps = len_data // batch_size
+            if "input" in name:
+                output = self.data_quantize
 
-        for s in range(num_steps):
-            print("--- ", s)
-            for i in range(len(self.model.layers)):
-                name = self.model.layers[i].name
+            else:
+                try:
+                    input_name = self.model.layers[i].input.name.split("/")[0]
+                    input = self.output_dict[input_name]
+                except Exception as e:
+                    input_names = [inp.name.split("/")[0] for inp in self.model.layers[i].input]
+                    input = [self.output_dict[inp_name] for inp_name in input_names]
+                output = self.model.layers[i](input).numpy()
 
-                if "input" in name:
-                    output = self.data_quantize[batch_size*s: batch_size*(s+1)]             # for 1-input model
-
-                else:
-                    try:
-                        input_name = self.model.layers[i].input.name.split("/")[0]
-                        input = self.output_dict[input_name]
-                    except Exception as e:
-                        input_names = [inp.name.split("/")[0] for inp in self.model.layers[i].input]
-                        input = [self.output_dict[inp_name] for inp_name in input_names]
-                    output = self.model.layers[i](input).numpy()
-
-                self.output_dict[name] = output
-
-                min_update = min(np.min(output), self.range_dict[name][0])
-                max_update = max(np.max(output), self.range_dict[name][1])
-                self.range_dict[name] = np.array([min_update, max_update])
+            self.output_dict[name] = output
 
     def quant_conv(self, layer, name):
         layer_info = {}
         w = layer.get_weights()
         kernel = w[0]
         input_name = layer.input.name.split("/")[0]
+        input = self.output_dict[input_name]
+        output = self.output_dict[name]
         strides = layer.get_config()['strides']
         padding = layer.get_config()['padding']
         Z_i, S_i = self.scale_dict[input_name]
         Z_k, S_k, kernel_quant = self.quant_uint8(kernel)
-        range_o = self.range_dict[name]
-        Z_o, S_o, _ = self.quant_uint8(range_o)
+        Z_o, S_o, _ = self.quant_uint8(output)
         if len(w) == 1:
             bias_quant = np.zeros(shape=w[0].shape[-1])
         else:
             bias = w[1]
             S_bias = S_k * S_i
+            # print("--S_bias:", S_bias, "--S_k:", S_k, "--S_i:", S_i, "--S_o:", S_o)
             bias_quant = self.quant_bias(bias, S_bias)
         M = S_k * S_i / S_o
         M0, n = self.get_multiplier(M)
+        # print(Z_k, S_k, Z_i, S_i, Z_o, S_o, S_bias, M0, n)
 
-        layer_info["input_shape"] = self.output_dict[input_name].shape[1:]
-        layer_info["output_shape"] = self.output_dict[name].shape[1:]
+        layer_info["input_shape"] = input.shape[1:]
+        layer_info["output_shape"] = output.shape[1:]
         layer_info["filter_shape"] = kernel.shape
         layer_info["stride"] = strides
         layer_info["padding"] = padding
@@ -188,10 +171,11 @@ class BasePTQ:
         w = layer.get_weights()
         kernel = w[0]
         input_name = layer.input.name.split("/")[0]
+        input = self.output_dict[input_name]
+        output = self.output_dict[name]
         Z_i, S_i = self.scale_dict[input_name]
         Z_k, S_k, kernel_quant = self.quant_uint8(kernel)
-        range_o = self.range_dict[name]
-        Z_o, S_o, _ = self.quant_uint8(range_o)
+        Z_o, S_o, _ = self.quant_uint8(output)
         if len(w) == 1:
             bias_quant = np.zeros(shape=w[0].shape[-1])
         else:
@@ -201,8 +185,8 @@ class BasePTQ:
         M = S_k * S_i / S_o
         M0, n = self.get_multiplier(M)
 
-        layer_info["input_shape"] = self.output_dict[input_name].shape[1:]
-        layer_info["output_shape"] = self.output_dict[name].shape[1:]
+        layer_info["input_shape"] = input.shape[1:]
+        layer_info["output_shape"] = output.shape[1:]
         layer_info["filter_shape"] = kernel.shape
         layer_info["flt_off"] = int(Z_k)
         layer_info["inp_off"] = int(Z_i)
@@ -218,8 +202,8 @@ class BasePTQ:
 
     def quant_add(self, layer, name):
         layer_info = {}
-        range_o = self.range_dict[name]
-        Z_o, S_o, _ = self.quant_uint8(range_o)
+        output = self.output_dict[name]
+        Z_o, S_o, _ = self.quant_uint8(output)  # quantize for yolov8, need modify after
         inputs = layer.input
         if len(inputs) == 2:
             input1_name = inputs[0].name.split("/")[0]
@@ -238,10 +222,11 @@ class BasePTQ:
             M20, n2 = self.get_multiplier(M2)
             Mo0, no = self.get_multiplier(Mo)
 
-            shape_saved = self.output_dict[input1_name].shape[1:]
-            layer_info["input1_shape"] = shape_saved
-            layer_info["input2_shape"] = shape_saved
-            layer_info["output_shape"] = shape_saved
+            input1 = self.output_dict[input1_name]
+            input2 = self.output_dict[input2_name]
+            layer_info["input1_shape"] = input1.shape[1:]
+            layer_info["input2_shape"] = input2.shape[1:]
+            layer_info["output_shape"] = output.shape[1:]
             layer_info["inp1_off"] = int(Z_i1)
             layer_info["inp2_off"] = int(Z_i2)
             layer_info["out_off"] = int(Z_o)
@@ -268,20 +253,20 @@ class BasePTQ:
         print("--", [scale[1] for scale in scales], S)
         Z = 0 - round(out_range[0] / S)
 
+        output = self.output_dict[name]
         for i in range(len(inp_names)):
             M = scales[i][1] / S
             M0, n = self.get_multiplier(M)
-            input_shape = self.output_dict[inp_names[i]].shape
-            print("--", inp_names[i], input_shape)
-            layer_info[f"input{i + 1}_shape"] = input_shape[1:]
+            input = self.output_dict[inp_names[i]]
+            print("--", inp_names[i], input.shape)
+            layer_info[f"input{i + 1}_shape"] = input.shape[1:]
             layer_info[f"inp{i + 1}_off"] = int(scales[i][0])
             layer_info[f"multiplier_{i + 1}"] = int(M0)
             layer_info[f"shift_{i + 1}"] = int(n)
-        output_shape = self.output_dict[name].shape
         layer_info["out_off"] = int(Z)
-        layer_info["output_height"] = output_shape[1] if len(output_shape) == 4 else 1
-        layer_info["output_width"] = output_shape[2] if len(output_shape) == 4 else 1
-        layer_info["output_depth"] = self.output_dict[name].shape[-1]
+        layer_info["output_height"] = output.shape[1] if len(output.shape) == 4 else 1
+        layer_info["output_width"] = output.shape[2] if len(output.shape) == 4 else 1
+        layer_info["output_depth"] = output.shape[-1]
 
         self.scale_dict[name] = [Z, S]
 
@@ -295,7 +280,8 @@ class BasePTQ:
             print(name)
 
             if "input" in name:
-                Z, S = 0, 1/255.        # Z, S, _ = self.quant_uint8(self.range_dict[name])
+                output = self.data_quantize
+                Z, S = 0, 1/255.        # Z, S, _ = self.quant_uint8(output)
                 self.scale_dict[name] = [Z, S]
                 layer_info = {}
 
