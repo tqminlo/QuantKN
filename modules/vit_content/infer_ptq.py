@@ -27,6 +27,7 @@ def save_txt(tensor, txt_path=None):
 
 
 def save_all_outputs(all_outputs):
+    os.makedirs("saved/save_all_outputs", exist_ok=True)
     all_names = list(all_outputs.keys())
     for i in range(len(all_names)):
         layer_name = all_names[i]
@@ -60,82 +61,111 @@ def save_all_outputs(all_outputs):
         print("---", layer_name, "Done!")
 
 
-def save_all_cfgs(cfg_json_path):
-    with open(cfg_json_path) as f:
-        cfgs = json.load(f)
-
-    all_saved = {}
-    all_keys = list(cfgs.keys())
-    for i in range(len(all_keys)):
-        key = all_keys[i]
-        print("--- ", key)
-        all_saved[key] = cfgs[key]
-
-        if key == "._patch_embed._proj._Conv":
-            kernel = np.array(all_saved[key]["kernel"])
-            kernel = kernel.transpose((0, 2, 1, 3))                 # fy, ic, fx, oc
-            bias = np.array(all_saved[key]["bias"])
-            all_saved[key]["kernel"] = save_txt(kernel)
-            all_saved[key]["bias"] = save_txt(bias)
-
-        elif key == "._depth_head._output_conv2._output_conv2.2._Conv":
-            kernel = np.array(all_saved[key]["kernel"])
-            flt_off = all_saved[key]["flt_off"]
-            new_shape = (1, 1, 32, 8)
-            new_kernel = np.ones(shape=new_shape, dtype=int) * flt_off
-            new_kernel[:, :, :, :1] = kernel
-            fh, fw, ic, oc = new_kernel.shape
-            kernel = new_kernel.reshape((fh, fw, ic, oc // 8, 8))
-            kernel = kernel.transpose(3, 0, 1, 2, 4)
-            print("-----check last cv-----:", kernel.shape)
-            bias = np.array(all_saved[key]["bias"])
-            all_saved[key]["kernel"] = save_txt(kernel)
-            all_saved[key]["bias"] = save_txt(bias)
-
-        elif "ConvTranspose" in key:
-            kernel = np.array(all_saved[key]["kernel"])
-            shape = kernel.shape
-            txt_kernel = ""
-            for fh in range(shape[0]):
-                for fw in range(shape[1]):
-                    sub_kernel = kernel[fh][fw]
-                    sub_kernel = sub_kernel.transpose()
-                    sub_kernel = sub_kernel.reshape((shape[2], shape[3]//8, 8))         # dam bao ix, oc chia het cho 8
-                    sub_kernel = sub_kernel.transpose((1, 0, 2))
-                    txt_kernel += save_txt(sub_kernel) + "\n\n"
-            bias = np.array(all_saved[key]["bias"])
-            all_saved[key]["kernel"] = txt_kernel
-            all_saved[key]["bias"] = save_txt(bias)
-
-        elif "Conv" in key:
-            kernel = np.array(all_saved[key]["kernel"])
-            fh, fw, ic, oc = kernel.shape
-            kernel = kernel.reshape((fh, fw, ic, oc // 8, 8))
-            kernel = kernel.transpose(3, 0, 1, 2, 4)
-            bias = np.array(all_saved[key]["bias"])
-            all_saved[key]["kernel"] = save_txt(kernel)
-            all_saved[key]["bias"] = save_txt(bias)
-
-        elif "MatMulAdd" in key:
-            kernel = np.array(all_saved[key]["kernel"])
-            flt_off = all_saved[key]["flt_off"]
-            shape = kernel.shape
-            div = shape[1] / 8
-            new_dim1 = int(np.ceil((div - 1) / 2) * 2 + 1) * 8
-            print("-------- ", shape[1], new_dim1)
-            new_shape = (shape[0], new_dim1)
-            new_kernel = np.ones(shape=new_shape, dtype=int) * flt_off
-            new_kernel[:, :shape[1]] = kernel
-            bias = np.array(all_saved[key]["bias"])
-            all_saved[key]["kernel"] = save_txt(new_kernel)
-            all_saved[key]["bias"] = save_txt(bias)
-
-        txt_path = f"saved/save_all_weights/layer{i:03}_{key}.txt"
-        txt = ""
-        for sub_key in all_saved[key].keys():
-            txt += f"{sub_key}      : {all_saved[key][sub_key]}\n"
-        with open(txt_path, "w") as f:
-            f.write(txt)
+# def save_all_cfgs(cfg_json_path):
+#     os.makedirs("saved/save_all_weights", exist_ok=True)
+#     with open(cfg_json_path) as f:
+#         cfgs = json.load(f)
+#
+#     all_saved = {}
+#     all_keys = list(cfgs.keys())
+#     for i in range(len(all_keys)):
+#         key = all_keys[i]
+#         print("--- ", key)
+#         all_saved[key] = cfgs[key]
+#
+#         # if "matmul_qk" not in key:
+#         #     continue
+#         # if key == "._patch_embed._proj._Conv":
+#         #     kernel = np.array(all_saved[key]["kernel"])
+#         #     flt_off = all_saved[key]["flt_off"]
+#         #     # kernel = kernel.transpose((0, 2, 1, 3))                 # fy, ic, fx, oc
+#         #     fh, fw, ic, oc = kernel.shape
+#         #     kernel = kernel.reshape((fh*fw*ic, oc))
+#         #     ic_, oc_ = kernel.shape
+#         #     ic_pad = int(np.ceil(ic_ / 8) * 8)
+#         #     kernel_pad = np.ones(shape=(ic_pad, oc_), dtype=int) * flt_off
+#         #     kernel_pad[:ic_, :] = kernel
+#         #     kernel = kernel_pad.reshape((ic_pad, oc//8, 8))
+#         #     kernel = kernel.transpose(1, 0, 2)
+#         #     bias = np.array(all_saved[key]["bias"])
+#         #     all_saved[key]["kernel"] = save_txt(kernel)
+#         #     all_saved[key]["bias"] = save_txt(bias)
+#
+#         if key == "._patch_embed._proj._Conv":
+#             kernel = np.array(all_saved[key]["kernel"])
+#             flt_off = all_saved[key]["flt_off"]
+#             fh, fw, ic, oc = kernel.shape
+#             kernel = kernel.reshape((fh*fw*ic, oc))
+#             ic_, oc_ = kernel.shape
+#             ic_pad = int(np.ceil(ic_ / 32) * 32)
+#             oc_pad = int(np.ceil(oc_ / 128) * 128)
+#             kernel_pad = np.ones(shape=(ic_pad, oc_pad), dtype=int) * flt_off
+#             kernel_pad[:ic_, :oc_] = kernel
+#             kernel = kernel_pad.reshape((ic_pad//32, 2, 16, oc_pad//128, 128))
+#             kernel = kernel.transpose(3, 0, 2, 4, 1)
+#             print(kernel.shape)
+#             bias = np.array(all_saved[key]["bias"])
+#             all_saved[key]["kernel"] = save_txt(kernel)
+#             all_saved[key]["bias"] = save_txt(bias)
+#
+#         elif key == "._depth_head._output_conv2._output_conv2.2._Conv":
+#             kernel = np.array(all_saved[key]["kernel"])
+#             flt_off = all_saved[key]["flt_off"]
+#             new_shape = (1, 1, 32, 8)
+#             new_kernel = np.ones(shape=new_shape, dtype=int) * flt_off
+#             new_kernel[:, :, :, :1] = kernel
+#             fh, fw, ic, oc = new_kernel.shape
+#             kernel = new_kernel.reshape((fh, fw, ic, oc // 8, 8))
+#             kernel = kernel.transpose(3, 0, 1, 2, 4)
+#             print("-----check last cv-----:", kernel.shape)
+#             bias = np.array(all_saved[key]["bias"])
+#             all_saved[key]["kernel"] = save_txt(kernel)
+#             all_saved[key]["bias"] = save_txt(bias)
+#
+#         elif "ConvTranspose" in key:
+#             kernel = np.array(all_saved[key]["kernel"])
+#             shape = kernel.shape
+#             txt_kernel = ""
+#             for fh in range(shape[0]):
+#                 for fw in range(shape[1]):
+#                     sub_kernel = kernel[fh][fw]
+#                     sub_kernel = sub_kernel.transpose()
+#                     sub_kernel = sub_kernel.reshape((shape[2], shape[3]//8, 8))         # dam bao ix, oc chia het cho 8
+#                     sub_kernel = sub_kernel.transpose((1, 0, 2))
+#                     txt_kernel += save_txt(sub_kernel) + "\n\n"
+#             bias = np.array(all_saved[key]["bias"])
+#             all_saved[key]["kernel"] = txt_kernel
+#             all_saved[key]["bias"] = save_txt(bias)
+#
+#         elif "Conv" in key:
+#             kernel = np.array(all_saved[key]["kernel"])
+#             fh, fw, ic, oc = kernel.shape
+#             kernel = kernel.reshape((fh, fw, ic, oc // 8, 8))
+#             kernel = kernel.transpose(3, 0, 1, 2, 4)
+#             bias = np.array(all_saved[key]["bias"])
+#             all_saved[key]["kernel"] = save_txt(kernel)
+#             all_saved[key]["bias"] = save_txt(bias)
+#
+#         elif "MatMulAdd" in key:
+#             kernel = np.array(all_saved[key]["kernel"])
+#             flt_off = all_saved[key]["flt_off"]
+#             shape = kernel.shape
+#             div = shape[1] / 8
+#             new_dim1 = int(np.ceil((div - 1) / 2) * 2 + 1) * 8
+#             print("-------- ", shape[1], new_dim1)
+#             new_shape = (shape[0], new_dim1)
+#             new_kernel = np.ones(shape=new_shape, dtype=int) * flt_off
+#             new_kernel[:, :shape[1]] = kernel
+#             bias = np.array(all_saved[key]["bias"])
+#             all_saved[key]["kernel"] = save_txt(new_kernel)
+#             all_saved[key]["bias"] = save_txt(bias)
+#
+#         txt_path = f"saved/save_all_weights/layer{i:03}_{key}.txt"
+#         txt = ""
+#         for sub_key in all_saved[key].keys():
+#             txt += f"{sub_key}      : {all_saved[key][sub_key]}\n"
+#         with open(txt_path, "w") as f:
+#             f.write(txt)
 
 
 class InferPTQ(InferPTQBase):
@@ -173,7 +203,13 @@ class InferPTQ(InferPTQBase):
         x2 = (x2 / pow(2, -n2) + np.sign(x2) * 0.5).astype(int)
         x2 += Zo2
         x2 = np.clip(x2, 0, 255)
+        kqt_test = x2[0, 0]
+        # print("kqt_test first row: ", kqt_test[0].tolist())
+        # kqt_test = kqt_test.transpose()
+        # print("kqt_test shape: ", kqt_test.shape)
+        save_txt(kqt_test, "kqt_test_blk0_h0.txt")
         x_max = np.max(x2, axis=-1, keepdims=True)
+        # print("--- check x_max:", x_max[0, 0, :, 0].tolist())
         x_max_scale = x_max - Zo2
         x_max_scale = (x_max_scale * M0_qmax / (2 ** -n_qmax) + np.sign(x_max_scale) * 0.5).astype(int)         ###
         # x_max_scale = (x_max_scale * M0_qmax / (2 ** -n_qmax) + 0.5).astype(int)  ###
@@ -205,6 +241,7 @@ class InferPTQ(InferPTQBase):
         inp2 = all_output[input_name2].astype(float)
 
         x = (inp1 - Z1) @ (inp2 - Z2)
+        print("--- check sm*v head 0, row 1, first-5 : ", x[0][0][1][:5])
         # print("--- check min, max qi*qv:", np.min(x), np.max(x))
         # if "matmul_qkv" in name:
         #     M0 = M0 / 257.
@@ -216,26 +253,91 @@ class InferPTQ(InferPTQBase):
         x = np.clip(x, 0, 255)
         return x
 
+    # def softmax_infer_quant(self, layer, name, all_output):
+    #     data_quant = self.model_quant[name]
+    #     Zi = data_quant["inp_off"]                          # 255
+    #     Zo = data_quant["out_off"]                          # 0
+    #     qb1 = data_quant["qb1"]                             #
+    #     qc1 = data_quant["qc1"]
+    #     M01 = data_quant["multiplier1"]
+    #     n1 = data_quant["shift1"]
+    #     qb2 = data_quant["qb2"]                             #
+    #     qc2 = data_quant["qc2"]
+    #     M02 = data_quant["multiplier2"]
+    #     n2 = data_quant["shift2"]
+    #     qb3 = data_quant["qb3"]                             #
+    #     qc3 = data_quant["qc3"]
+    #     M03 = data_quant["multiplier3"]
+    #     n3 = data_quant["shift3"]
+    #     qb4 = data_quant["qb4"]  #
+    #     qc4 = data_quant["qc4"]
+    #     M04 = data_quant["multiplier4"]
+    #     n4 = data_quant["shift4"]
+    #
+    #     input_name = layer.input.name.split("/")[0]
+    #     print("--", input_name)
+    #     qi = all_output[input_name].astype(float)
+    #
+    #     sign1 = np.clip(np.sign(qi - 128), None, 0) * (-1)
+    #     sign2 = np.clip(np.sign(qi - 192), None, 0) * (-1) - sign1
+    #     sign3 = np.clip(np.sign(qi - 224), None, 0) * (-1) - sign1 - sign2
+    #     sign4 = 1 - sign1 - sign2 - sign3
+    #     qb = sign1 * qb1 + sign2 * qb2 + sign3 * qb3 + qb4 * sign4
+    #     qc = sign1 * qc1 + sign2 * qc2 + sign3 * qc3 + qc4 * sign4
+    #     M0 = sign1 * M01 + sign2 * M02 + sign3 * M03 + M04 * sign4
+    #     n = sign1 * n1 + sign2 * n2 + sign3 * n3 + n4 * sign4
+    #     qex = ((qi - 255 + qb) ** 2 + qc).astype(float)
+    #     qex = np.floor(qex * M0 / 2147483648 + 0.5)
+    #     qex = (qex / pow(2, -n) + np.sign(qex) * 0.5).astype(int)
+    #     qex = np.clip(qex, 0, 255)
+    #     # print("--- check qi: ", qi[0, 0, 0, :])                                   # head 0, row 1
+    #     # print("--- check qex: ", qex[0, 0, 0, :])                                 # head 0, row 1
+    #     qex_sum = np.sum(qex, axis=-1, keepdims=True)
+    #     print("--- check qex_sum: ", qex_sum[0, 0, :5, 0])                          #
+    #
+    #     div = ((2 ** 31) / qex_sum)
+    #     bit_shift_left = np.log2(div)
+    #     bit_shift_left = (np.ceil(bit_shift_left) - 1).astype(int)
+    #     d = qex_sum * pow(2, bit_shift_left)
+    #     d = d.astype(np.int64)
+    #     const_48div17 = 1515870810
+    #     const_n32div17 = -1010580540
+    #     x = const_48div17 + np.floor((const_n32div17 * d) / (1 << 31) + 0.5)
+    #     for i in range(3):
+    #         mul_xd = np.floor((x * d) / (2 ** 31) + 0.5)
+    #         sub_by1 = (1 << 29) - mul_xd
+    #         x = x + (np.floor((x * sub_by1) / (2 ** 31) + 0.5)) * (2 ** 2)          ###
+    #         # x = x + (np.floor((x * sub_by1) / (2 ** 29) + 0.5))                   ###
+    #     # print("--- check x: ", x[:, 0, :5, :])                                      # head 0, first 5 row
+    #     shift_right = 29 - bit_shift_left
+    #     Msum = np.floor((x / (2 ** shift_right) + 0.5))
+    #     # print("--- check Msum: ", Msum[:, 0, :5, :])
+    #
+    #     qy = np.floor((qex * 65535) * Msum / (2 ** 31) + 0.5)
+    #     # print("--- check qy: ", qy[0, 0, 0, :])                                   # head 0, row 1
+    #     # print("--- check min, max qy:", np.min(qy), np.max(qy))
+    #     # qsum = np.sum(qy, axis=-1)
+    #     # print("--- check min, max qsum:", np.min(qsum), np.max(qsum))
+    #     qy = np.clip(qy, 0, 65535).astype(int)
+    #     # print("--- check qy head 0:", qy[0][0][0].tolist())
+    #
+    #     # sign = np.sign(qy[0])
+    #     # non0 = np.abs(sign)
+    #     # non0 = np.sum(non0, axis=(1, 2))
+    #     # print("--- test non0:", non0.tolist())
+    #     # print("--- density u16:", (non0 / 1876900 * 100).tolist())
+    #     # qyu8 = qy / 257
+    #     # qyu8 = np.clip(qyu8, 0, 255).astype(int)
+    #     # sign8 = np.sign(qyu8[0])
+    #     # non0u8 = np.abs(sign8)
+    #     # non0u8 = np.sum(non0u8, axis=(1, 2))
+    #     # print("--- test non0u8:", non0u8.tolist())
+    #     # print("--- density u8:", (non0u8 / 1876900 * 100).tolist())
+    #
+    #     return qy
+
     def softmax_infer_quant(self, layer, name, all_output):
         data_quant = self.model_quant[name]
-        Zi = data_quant["inp_off"]                          # 255
-        Zo = data_quant["out_off"]                          # 0
-        qb1 = data_quant["qb1"]                             #
-        qc1 = data_quant["qc1"]
-        M01 = data_quant["multiplier1"]
-        n1 = data_quant["shift1"]
-        qb2 = data_quant["qb2"]                             #
-        qc2 = data_quant["qc2"]
-        M02 = data_quant["multiplier2"]
-        n2 = data_quant["shift2"]
-        qb3 = data_quant["qb3"]                             #
-        qc3 = data_quant["qc3"]
-        M03 = data_quant["multiplier3"]
-        n3 = data_quant["shift3"]
-        qb4 = data_quant["qb4"]  #
-        qc4 = data_quant["qc4"]
-        M04 = data_quant["multiplier4"]
-        n4 = data_quant["shift4"]
 
         input_name = layer.input.name.split("/")[0]
         print("--", input_name)
@@ -245,17 +347,18 @@ class InferPTQ(InferPTQBase):
         sign2 = np.clip(np.sign(qi - 192), None, 0) * (-1) - sign1
         sign3 = np.clip(np.sign(qi - 224), None, 0) * (-1) - sign1 - sign2
         sign4 = 1 - sign1 - sign2 - sign3
-        qb = sign1 * qb1 + sign2 * qb2 + sign3 * qb3 + qb4 * sign4
-        qc = sign1 * qc1 + sign2 * qc2 + sign3 * qc3 + qc4 * sign4
-        M0 = sign1 * M01 + sign2 * M02 + sign3 * M03 + M04 * sign4
-        n = sign1 * n1 + sign2 * n2 + sign3 * n3 + n4 * sign4
+        qb = sign1 * 255 + sign2 * 129 + sign3 * 80 + 48 * sign4
+        qc = sign1 * 0 + sign2 * 747 + sign3 * 931 + 931 * sign4
+        M0 = sign1 * 224 + sign2 * 3594 + sign3 * 15117 + 41092 * sign4
+        n = -3
         qex = ((qi - 255 + qb) ** 2 + qc).astype(float)
-        qex = np.floor(qex * M0 / 2147483648 + 0.5)
+        qex = np.floor(qex * M0 / 65536 + 0.5)
         qex = (qex / pow(2, -n) + np.sign(qex) * 0.5).astype(int)
         qex = np.clip(qex, 0, 255)
-        # print("--- check qi: ", qi[0, 0, 0, :])                                   # head 0, row 1
-        # print("--- check qex: ", qex[0, 0, 0, :])                                 # head 0, row 1
+        print("--- check qi: ", qi[0, 0, 0, :])                 # head 0, row 1
+        print("--- check qex: ", qex[0, 0, 0, :])               # head 0, row 1
         qex_sum = np.sum(qex, axis=-1, keepdims=True)
+        print("--- check qex_sum: ", qex_sum[0, 0, :5, :])      # head 0, first 5 row in 1370 row
 
         div = ((2 ** 31) / qex_sum)
         bit_shift_left = np.log2(div)
@@ -269,14 +372,14 @@ class InferPTQ(InferPTQBase):
             mul_xd = np.floor((x * d) / (2 ** 31) + 0.5)
             sub_by1 = (1 << 29) - mul_xd
             x = x + (np.floor((x * sub_by1) / (2 ** 31) + 0.5)) * (2 ** 2)          ###
-            # x = x + (np.floor((x * sub_by1) / (2 ** 29) + 0.5))                   ###
-        # print("--- check x: ", x[:, 0, :5, :])                                    # head 0, first 5 row
+            # x = x + (np.floor((x * sub_by1) / (2 ** 29) + 0.5))         ###
+        print("--- check x: ", x[:, 0, :5, :])                  # head 0, first 5 row in 1370 row
         shift_right = 29 - bit_shift_left
         Msum = np.floor((x / (2 ** shift_right) + 0.5))
 
         qy = np.floor((qex * 65535) * Msum / (2 ** 31) + 0.5)
-        # print("--- check qy: ", qy[0, 0, 0, :])                                   # head 0, row 1
-        # print("--- check min, max qy:", np.min(qy), np.max(qy))
+        print("--- check qy: ", qy[0, 0, 0, :])                 # head 0, row 1
+        print("--- check min, max qy:", np.min(qy), np.max(qy))
         qsum = np.sum(qy, axis=-1)
         print("--- check min, max qsum:", np.min(qsum), np.max(qsum))
         qy = np.clip(qy, 0, 65535).astype(int)
@@ -355,23 +458,31 @@ class InferPTQ(InferPTQBase):
 
     def ln_infer_quant(self, layer, name, all_output):
         data_quant = self.model_quant[name]
-        M0_extra = data_quant["extra_multiplier"]
-        n_extra = data_quant["extra_shift"]
+        M0_extra = data_quant["extra_multiplier"] // 2
+        n_extra = data_quant["extra_shift"] + 1
         Zo = data_quant["out_off"]
 
         input_name = layer.input.name.split("/")[0]
         print("--", input_name)
         inp = all_output[input_name]
+        print("--- check M0_extra, n_extra: ", M0_extra, n_extra)
+        print("--- check inp 678 79: ", inp[0, 678, 79])
         mean = np.average(inp, axis=-1, keepdims=True).astype(int)
         V = np.sum((inp - mean)**2, axis=-1, keepdims=True)             # V * 384
+        print("--- check V*384: ", V[0, 678, 0])
         V = np.floor(V / 384 + 0.5) * (2**16)
+        print("--- check V(678) scale: ", V[0, 678, 0])
         std = (np.sqrt(V)).astype(int)                            # std * (2**8)
+        print("--- check std(678) scale: ", std[0, 678, 0])
+        # print("--- check std: ", std.flatten())
         # std = (np.std(inp, axis=-1, keepdims=True))
         # std = ((np.std(inp, axis=-1, keepdims=True) * (2**8)) + 0.5).astype(int)
+        # print("--- check std: ", std.flatten())
 
         bit_shift_left = (30 - (np.log2(std)).astype(int))
-        print("--- check bit_shift_left shape: ", bit_shift_left.shape)
+        print("--- check bit_shift_left(678): ", bit_shift_left[0, 678, 0])
         q_sd = (std * (2 ** bit_shift_left)).astype(np.int64)
+        print("--- check q_sd(678): ", q_sd[0, 678, 0])
         const_48div17 = 1515870810
         const_n32div17 = -1010580540
         x = const_48div17 + np.floor((q_sd * const_n32div17) / (2 ** 31) + 0.5)
@@ -381,14 +492,19 @@ class InferPTQ(InferPTQBase):
             x = x + (np.floor((x * sub_by1) / (2 ** 31) + 0.5)) * (2 ** 2)
 
         n_final = (29 - n_extra - bit_shift_left) - 8
+        print("--- check n_final(678): ", n_final[0, 678, 0])
         out = np.int64((inp - mean) * M0_extra)
+        print("--- check out(678, 79): ", out[0, 678, 79])
         out = np.floor(out * x / 2147483648 + 0.5)
+        print("--- check out(678, 79): ", out[0, 678, 79])
         out = (out / pow(2, n_final) + np.sign(out) * 0.5).astype(int)
+        print("--- check out(678, 79): ", out[0, 678, 79])
         # out = np.int64((inp - mean) / std)
         # out = (out * M0_extra / pow(2, -n_extra) + 0.5).astype(int)
         out = out + Zo
         print("--- check min, max out:", np.min(out), np.max(out))
         out = np.clip(out, 0, 255)
+        print("--- check out(0, 678, 79): ", out[0, 678, 79])
 
         return out
 
@@ -504,6 +620,36 @@ if __name__ == "__main__":
     infer_ptq = InferPTQ(model, args.json_path)
     inp = cv2.imread(args.img_path)
     # inp = cv2.cvtColor(inp, cv2.COLOR_BGR2RGB)
+
+    # inpp = cv2.resize(inp, (518, 518))
+    # inpp = inpp.reshape(37,14,37,14,3)
+    # inpp = inpp.transpose((0,2,1,3,4))
+    # inpp = inpp.reshape((1369, 588))
+    # save_txt(inpp, "saved/out000_input_1369x588.txt")
+
+    # print("inp yx=32:", inpp[32])
+    # print("-----")
+    # with open(args.json_path) as f:
+    #     cfgs = json.load(f)
+    # kernel = np.array(cfgs["._patch_embed._proj._Conv"]["kernel"])
+    # flt_off = cfgs["._patch_embed._proj._Conv"]["flt_off"]
+    # bias = np.array(cfgs["._patch_embed._proj._Conv"]["bias"])
+    # fh, fw, ic, oc = kernel.shape
+    # kernel = kernel.reshape((fh * fw * ic, oc))
+    # print("kernel oc=0:", kernel[:, 0])
+    # print("-----")
+    # print("bias oc=0:", bias[0])
+    # print("-----")
+    # out = inpp[32] @ (kernel-135) + bias
+    # out = out.astype(np.int64)
+    # print(out)
+    # out = np.floor((out * 1631055713) / (2**31) + 0.5)
+    # print(out)
+    # out = (out / (2 ** 12) + np.sign(out) * 0.5).astype(int)
+    # print(out)
+    # out = out + 157
+    # print(out)
+
     org_h, org_w, _ = inp.shape
 
     all_output = infer_ptq.infer(inp)
@@ -514,4 +660,8 @@ if __name__ == "__main__":
     from infer_dat_fp32 import show_depth
     show_depth(depth, inp, (org_w, org_h))
 
-    # save_all_outputs(all_output)
+    save_all_outputs(all_output)
+
+    # inp = cv2.resize(inp, (518, 518))
+    # txt_path = f"saved/save_all_outputs/out000_input_hwc.txt"
+    # save_txt(inp, txt_path)
